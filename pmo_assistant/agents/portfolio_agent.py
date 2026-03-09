@@ -146,35 +146,35 @@ def answer_portfolio_question(question: str) -> str:
     kpis = _compute_kpis()
 
     data_summary = f"""
-    Portfolio KPI Data:
+        Portfolio KPI Data:
 
-    Overall Utilization: {kpis.get("overall_utilization_pct", "N/A")} %
-    Average Bench Strength: {kpis.get("average_bench_pct", "N/A")} %
-    Active Projects: {kpis.get("active_projects", "N/A")}
-    Average CSAT Score: {kpis.get("average_csat", "N/A")}
-    """
+        Overall Utilization: {kpis.get("overall_utilization_pct", "N/A")} %
+        Average Bench Strength: {kpis.get("average_bench_pct", "N/A")} %
+        Active Projects: {kpis.get("active_projects", "N/A")}
+        Average CSAT Score: {kpis.get("average_csat", "N/A")}
+        """
 
     system_prompt = """
-    You are a PMO Portfolio Intelligence Assistant.
-    
-    You analyze PMO portfolio data and provide executive insights.
-    
-    Rules:
-    - Use ONLY the provided KPI data.
-    - Do not invent numbers.
-    - Provide structured answers.
-    - Focus on utilization, capacity, project load, and client satisfaction.
+        You are a PMO Portfolio Intelligence Assistant.
+        
+        You analyze PMO portfolio data and provide executive insights.
+        
+        Rules:
+        - Use ONLY the provided KPI data.
+        - Do not invent numbers.
+        - Provide structured answers.
+        - Focus on utilization, capacity, project load, and client satisfaction.
+        """
+
+    user_prompt = f"""
+    Portfolio Data:
+    {data_summary}
+
+    Question:
+    {question}
+
+    Provide a clear PMO-level answer with insights.
     """
-
-user_prompt = f"""
-Portfolio Data:
-{data_summary}
-
-Question:
-{question}
-
-Provide a clear PMO-level answer with insights.
-"""
 
     return llm.complete(system_prompt, user_prompt)
 
