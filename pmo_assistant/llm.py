@@ -122,7 +122,7 @@ from .config import HUGGINGFACEHUB_API_KEY
 
 HF_MODEL = os.getenv(
     "HF_MODEL",
-    "HuggingFaceH4/zephyr-7b-beta"
+    "mistralai/Mistral-7B-Instruct-v0.2"
 )
 
 
@@ -196,37 +196,65 @@ class LLMClient:
 
     #     return text
 
+    # def complete(
+    #     self,
+    #     system_prompt: str,
+    #     user_content: str,
+    #     temperature: float = 0.2,
+    #     max_tokens: int = 600,
+    # ) -> str:
+
+    #     response = self.client.chat.completions.create(
+    #         model="HuggingFaceH4/zephyr-7b-beta",
+    #         messages=[
+    #             {
+    #                 "role": "system",
+    #                 "content": system_prompt,
+    #             },
+    #             {
+    #                 "role": "user",
+    #                 "content": user_content,
+    #             },
+    #         ],
+    #         temperature=temperature,
+    #         max_tokens=max_tokens,
+    #         # stop=["</s>"]
+    #     )
+
+    #     text = response.choices[0].message.content
+
+    #     if text:
+    #         text = text.replace("<|assistant|>", "").strip()
+
+    #     return text
+
     def complete(
         self,
         system_prompt: str,
         user_content: str,
         temperature: float = 0.2,
         max_tokens: int = 600,
-    ) -> str:
+        ) -> str:
 
-        response = self.client.chat.completions.create(
-            model="HuggingFaceH4/zephyr-7b-beta",
-            messages=[
-                {
-                    "role": "system",
-                    "content": system_prompt,
-                },
-                {
-                    "role": "user",
-                    "content": user_content,
-                },
-            ],
+        prompt = f"""
+        {system_prompt}
+
+        User:
+        {user_content}
+
+        Assistant:
+        """
+
+        response = self.client.text_generation(
+            prompt,
+            max_new_tokens=max_tokens,
             temperature=temperature,
-            max_tokens=max_tokens,
-            # stop=["</s>"]
+            do_sample=True,
         )
 
-        text = response.choices[0].message.content
+        return response.strip()
 
-        if text:
-            text = text.replace("<|assistant|>", "").strip()
 
-        return text
 
 
 
