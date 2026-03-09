@@ -51,90 +51,132 @@ def _compute_kpis() -> Dict[str, float]:
 # Portfolio Question Answering
 # ---------------------------------------------------
 
+# def answer_portfolio_question(question: str) -> str:
+
+#     llm = get_llm()
+
+#     util_df = load_resource_utilization_master()
+#     alloc_df = load_resource_allocation_master()
+#     csat_df = load_csat_data()
+
+#     kpis = _compute_kpis()
+
+#     summary = f"""
+#     Portfolio KPI Summary
+
+#     Overall Utilization: {kpis.get("overall_utilization_pct","NA")}%
+#     Average Bench %: {kpis.get("average_bench_pct","NA")}%
+#     Average CSAT: {kpis.get("average_csat","NA")}
+#     Active Projects: {kpis.get("active_projects","NA")}
+
+#     Resource Records: {len(util_df)}
+#     Allocation Records: {len(alloc_df)}
+#     CSAT Records: {len(csat_df)}
+#     """
+
+#     system_prompt = """
+#         You are PMO Exponent AI Agent.
+
+#         ROLE:
+#         You are a virtual PMO Assistant for Project Managers and Delivery Managers.
+#         You provide structured, data-driven, executive-level responses.
+
+#         You help with:
+#         • Utilization analytics
+#         • Bench strength
+#         • Resource allocation
+#         • Project portfolio insights
+#         • CSAT analysis
+#         • Onboarding / Offboarding tracking
+#         • PMO risk and governance insights
+
+#         STRICT RESPONSE RULES:
+
+#         1. Always return structured output.
+#         2. Never return a long paragraph.
+#         3. Use sections and bullet points.
+#         4. If tables help readability, include tables.
+#         5. Be concise and executive friendly.
+#         6. Never invent numbers not present in data.
+
+#         OUTPUT FORMAT:
+
+#         ### Utilization
+#         - Overall Utilization: %
+#         - Billable Hours: number
+#         - Total Hours: number
+
+#         ### Bench Strength
+#         - Average Bench %: %
+
+#         ### Portfolio Overview
+#         | Metric | Value |
+#         |------|------|
+#         | Active Projects | number |
+#         | Average CSAT | number |
+
+#         ### PMO Insight
+#         Short decision-focused insight for leadership.
+
+#         """
+
+#     user_content = f"""
+#         PORTFOLIO DATA SUMMARY
+
+#         {summary}
+
+#         USER QUESTION:
+#         {question}
+
+#         Answer using the structured PMO format described above.
+#         """
+
+#     response = llm.complete(
+#         system_prompt=system_prompt,
+#         user_content=user_content,
+#         max_tokens=600,
+#     )
+#     return response
+
+
 def answer_portfolio_question(question: str) -> str:
 
     llm = get_llm()
 
-    util_df = load_resource_utilization_master()
-    alloc_df = load_resource_allocation_master()
-    csat_df = load_csat_data()
-
     kpis = _compute_kpis()
 
-    summary = f"""
-    Portfolio KPI Summary
+    data_summary = f"""
+    Portfolio KPI Data:
 
-    Overall Utilization: {kpis.get("overall_utilization_pct","NA")}%
-    Average Bench %: {kpis.get("average_bench_pct","NA")}%
-    Average CSAT: {kpis.get("average_csat","NA")}
-    Active Projects: {kpis.get("active_projects","NA")}
-
-    Resource Records: {len(util_df)}
-    Allocation Records: {len(alloc_df)}
-    CSAT Records: {len(csat_df)}
+    Overall Utilization: {kpis.get("overall_utilization_pct", "N/A")} %
+    Average Bench Strength: {kpis.get("average_bench_pct", "N/A")} %
+    Active Projects: {kpis.get("active_projects", "N/A")}
+    Average CSAT Score: {kpis.get("average_csat", "N/A")}
     """
 
     system_prompt = """
-        You are PMO Exponent AI Agent.
+    You are a PMO Portfolio Intelligence Assistant.
+    
+    You analyze PMO portfolio data and provide executive insights.
+    
+    Rules:
+    - Use ONLY the provided KPI data.
+    - Do not invent numbers.
+    - Provide structured answers.
+    - Focus on utilization, capacity, project load, and client satisfaction.
+    """
 
-        ROLE:
-        You are a virtual PMO Assistant for Project Managers and Delivery Managers.
-        You provide structured, data-driven, executive-level responses.
+user_prompt = f"""
+Portfolio Data:
+{data_summary}
 
-        You help with:
-        • Utilization analytics
-        • Bench strength
-        • Resource allocation
-        • Project portfolio insights
-        • CSAT analysis
-        • Onboarding / Offboarding tracking
-        • PMO risk and governance insights
+Question:
+{question}
 
-        STRICT RESPONSE RULES:
+Provide a clear PMO-level answer with insights.
+"""
 
-        1. Always return structured output.
-        2. Never return a long paragraph.
-        3. Use sections and bullet points.
-        4. If tables help readability, include tables.
-        5. Be concise and executive friendly.
-        6. Never invent numbers not present in data.
+    return llm.complete(system_prompt, user_prompt)
 
-        OUTPUT FORMAT:
 
-        ### Utilization
-        - Overall Utilization: %
-        - Billable Hours: number
-        - Total Hours: number
 
-        ### Bench Strength
-        - Average Bench %: %
-
-        ### Portfolio Overview
-        | Metric | Value |
-        |------|------|
-        | Active Projects | number |
-        | Average CSAT | number |
-
-        ### PMO Insight
-        Short decision-focused insight for leadership.
-
-        """
-
-    user_content = f"""
-        PORTFOLIO DATA SUMMARY
-
-        {summary}
-
-        USER QUESTION:
-        {question}
-
-        Answer using the structured PMO format described above.
-        """
-
-    response = llm.complete(
-        system_prompt=system_prompt,
-        user_content=user_content,
-        max_tokens=600,
-    )
-
-    return response
