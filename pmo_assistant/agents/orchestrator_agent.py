@@ -1,392 +1,375 @@
+
 # from __future__ import annotations
 
 # from dataclasses import dataclass
 # from typing import Any, Literal
+# import re
 
-# from . import governance_agent, portfolio_agent, staffing_agent, template_agent
+# from . import governance_agent, portfolio_agent, staffing_agent, template_agent, action_agent
 # from .staffing_agent import StaffingRequest
 # from .template_agent import TemplateRequest
 
+# from ..data_loader import (
+#     load_talent_pool,
+#     load_resource_allocation_master,
+# )
+# from ..llm import get_llm
 
-# AgentName = Literal["STAFFING", "TEMPLATE", "PORTFOLIO", "GOVERNANCE"]
-
+# AgentName = Literal["STAFFING", "TEMPLATE", "PORTFOLIO", "GOVERNANCE", "ACTION"]
 
 # @dataclass
 # class OrchestratorResult:
 #     agent: AgentName
 #     payload: Any
 
+# def detect_intent(llm, query: str) -> str:
+#     prompt = f"""
+#     You are an intelligent supervisor routing agent for an Enterprise PMO Assistant.
+#     Analyze the user's query and classify it strictly into ONE of the following categories.
+#     Return ONLY the category name. No markdown, no punctuation, no explanations.
+
+#     ROUTING CATEGORIES:
+#     - STAFFING: Queries regarding employee profiles, CV formatting, talent pool, available resources, bench strength, lookups for specific individuals, or onboarding/offboarding.
+#     - PORTFOLIO: Queries asking "who is working on Project X", overall utilization metrics, KPIs, CSAT scores, billing, invoices, timesheets, or project loads.
+#     - GOVERNANCE: Queries about project health, risks, escalations, RCA (Root Cause Analysis), RED/AMBER project status, or phase checklists.
+#     - TEMPLATE: Queries requesting document generation, drafting BRD, TDD, MoM, completion certificates, or similar artefacts.
+#     - ACTION: Queries explicitly asking to "allocate", "assign", "de-allocate", "add", or "update" a resource to a project.
+
+#     Examples:
+#     "Show employee profile of Aakash" -> STAFFING
+#     "What is our current bench strength?" -> STAFFING
+#     "Who is working on the Databricks migration?" -> PORTFOLIO
+#     "Summarize the KPIs and average CSAT" -> PORTFOLIO
+#     "Show project health risks and escalations" -> GOVERNANCE
+#     "Draft a new BRD document" -> TEMPLATE
+#     "Allocate employee 1045 to Project Phoenix" -> ACTION
+#     "Assign resource 5092 to the Databricks migration at 50% capacity" -> ACTION
+
+#     User Query:
+#     "{query}"
+#     """
+
+#     result = llm.complete(
+#         system_prompt="You are a strict, exact classification router. Return one word only.",
+#         user_content=prompt,
+#         max_tokens=10,
+#         temperature=0.0
+#     ).strip().upper()
+
+#     # Safety constraint: Enforce valid routing
+#     valid_agents = ["STAFFING", "PORTFOLIO", "GOVERNANCE", "TEMPLATE"]
+#     for agent in valid_agents:
+#         if agent in result:
+#             return agent
+            
+#     return "STAFFING" # Safe fallback
+
+# def extract_employee_name(llm, query: str) -> str:
+#     prompt = f"""
+#     Extract ONLY the employee name from the query.
+#     If no name is present, return the exact word: NONE.
+    
+#     Query:
+#     {query}
+#     """
+#     name = llm.complete(
+#         system_prompt="You extract entities from text exactly as they appear.",
+#         user_content=prompt,
+#         max_tokens=20,
+#         temperature=0.0
+#     )
+#     return name.strip()
+
 
 # def handle_query(user_query: str) -> OrchestratorResult:
 
+#     llm = get_llm()
+    
+#     # 1. Dynamically Detect Intent via LLM
+#     agent_intent = detect_intent(llm, user_query)
 #     q = user_query.lower()
 
 #     # =====================================================
-#     # STAFFING – Employee Profile / Talent / Bench
+#     # ROUTE: STAFFING
 #     # =====================================================
-#     if any(k in q for k in [
-#         "employee",
-#         "profile",
-#         "talent",
-#         "bench",
-#         "onboarding",
-#         "offboarding",
-#         "available resource",
-#         "resource status",
-#     ]):
+#     if agent_intent == "STAFFING":
+#         # 1. ALWAYS load the dataframe first so it is never "unbound"
+#         df = load_talent_pool()
+        
+#         # Safely clean the Employee Name column if it exists
+#         if "Employee Name" in df.columns:
+#             df["Employee Name"] = df["Employee Name"].astype(str).str.replace(r"\s+", " ", regex=True).str.strip()
 
+#         # 2. Check for an Employee ID (4+ digits)
+#         id_match = re.search(r"\b\d{4,}\b", user_query)
+#         if id_match and "Employee Code" in df.columns:
+#             emp_id = id_match.group()
+#             emp = df[df["Employee Code"].astype(str).str.contains(emp_id, case=False, na=False)]
+#             if not emp.empty:
+#                 return OrchestratorResult(agent="STAFFING", payload=emp.to_dict(orient="records"))
+
+#         # 3. Check for a specific Employee Name via LLM Extraction
+#         extracted_name = extract_employee_name(llm, user_query)
+#         if extracted_name and extracted_name.upper() != "NONE" and "Employee Name" in df.columns:
+#             emp = df[df["Employee Name"].str.lower().str.contains(extracted_name.lower(), na=False)]
+#             if not emp.empty:
+#                 return OrchestratorResult(agent="STAFFING", payload=emp.to_dict(orient="records"))
+
+#         # 4. Fallback: Show the general Talent Pool / Available Resources
 #         req = StaffingRequest()
-
-#         suggestions = staffing_agent.suggest_candidates(req, top_n=50)
-
+#         suggestions = staffing_agent.suggest_candidates(req, top_n=20)
+        
 #         return OrchestratorResult(
 #             agent="STAFFING",
 #             payload=[s.__dict__ for s in suggestions]
 #         )
 
 #     # =====================================================
-#     # PROJECT TEAM LOOKUP
+#     # ROUTE: PORTFOLIO
 #     # =====================================================
-#     if "who is working on" in q:
-
-#         from ..data_loader import load_resource_allocation_master
-
-#         df = load_resource_allocation_master()
-
-#         project_name = user_query.split("on")[-1].strip()
-
-#         team = df[
-#             df["Project Name"]
-#             .astype(str)
-#             .str.contains(project_name, case=False, na=False)
-#         ]
-
-#         return OrchestratorResult(
-#             agent="PORTFOLIO",
-#             payload=team.to_dict(orient="records")
-#         )
-
-#     # =====================================================
-#     # PORTFOLIO / KPI / UTILIZATION
-#     # =====================================================
-#     if any(k in q for k in [
-#         "utilization",
-#         "kpi",
-#         "csat",
-#         "project count",
-#         "billing",
-#         "invoice",
-#         "portfolio",
-#     ]):
-
+#     elif agent_intent == "PORTFOLIO":
+#         if "who is working on" in q:
+#             df = load_resource_allocation_master()
+#             project_name = user_query.split("on")[-1].strip()
+#             team = df[df["Project Name"].astype(str).str.contains(project_name, case=False, na=False)]
+#             return OrchestratorResult(agent="PORTFOLIO", payload=team.to_dict(orient="records"))
+            
 #         result = portfolio_agent.answer_portfolio_question(user_query)
-
-#         return OrchestratorResult(
-#             agent="PORTFOLIO",
-#             payload=result
-#         )
+#         return OrchestratorResult(agent="PORTFOLIO", payload=result)
 
 #     # =====================================================
-#     # GOVERNANCE
+#     # ROUTE: GOVERNANCE
 #     # =====================================================
-#     if any(k in q for k in [
-#         "governance",
-#         "risk",
-#         "escalation",
-#         "rca",
-#         "red",
-#         "amber",
-#         "health status",
-#     ]):
-
-#         items = governance_agent.get_checklist_for_phase("Initiation")
-
+#     elif agent_intent == "GOVERNANCE":
+#         items = governance_agent.get_checklist_for_phase("Execution")
 #         return OrchestratorResult(
 #             agent="GOVERNANCE",
 #             payload=[item.__dict__ for item in items]
 #         )
 
 #     # =====================================================
-#     # DOCUMENT / TEMPLATE
+#     # ROUTE: TEMPLATE
 #     # =====================================================
-#     if any(k in q for k in [
-#         "brd",
-#         "tdd",
-#         "mom",
-#         "document",
-#         "draft",
-#         "template",
-#         "format cv",
-#     ]):
-
+#     elif agent_intent == "TEMPLATE":
 #         req = TemplateRequest(
 #             template_type="BRD",
 #             context={"summary": user_query}
 #         )
-
 #         doc = template_agent.generate_document(req)
-
-#         return OrchestratorResult(
-#             agent="TEMPLATE",
-#             payload=doc
-#         )
+#         return OrchestratorResult(agent="TEMPLATE", payload=doc)
 
 #     # =====================================================
-#     # DEFAULT → Assume Staffing (Safer Default)
+#     # ROUTE: ACTION (Write-back)
 #     # =====================================================
+#     elif agent_intent == "ACTION":
+#         # Ensure action_agent is imported at the top of the file!
+#         parsed_request = action_agent.parse_action_request(user_query)
+#         return OrchestratorResult(agent="ACTION", payload=parsed_request)
+
+#     # Catch-all safe return
 #     req = StaffingRequest()
-#     suggestions = staffing_agent.suggest_candidates(req, top_n=50)
+#     suggestions = staffing_agent.suggest_candidates(req, top_n=20)
+#     return OrchestratorResult(agent="STAFFING", payload=[s.__dict__ for s in suggestions])
 
-#     return OrchestratorResult(
-#         agent="STAFFING",
-#         payload=[s.__dict__ for s in suggestions]
-#     )
 
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Literal
-import re
+import pandas as pd
 
 from . import governance_agent, portfolio_agent, staffing_agent, template_agent
 from .staffing_agent import StaffingRequest
 from .template_agent import TemplateRequest
 
-from ..data_loader import (
-    load_talent_pool,
-    load_resource_allocation_master,
-)
+# Import config directly to bypass the fuzzy data loader
+from ..config import EXCEL_FILES, resolve_file
+from ..llm import get_llm
 
-AgentName = Literal["STAFFING", "TEMPLATE", "PORTFOLIO", "GOVERNANCE"]
-
+AgentName = Literal["STAFFING", "TEMPLATE", "PORTFOLIO", "GOVERNANCE", "ACTION"]
 
 @dataclass
 class OrchestratorResult:
     agent: AgentName
     payload: Any
 
-from ..llm import get_llm
+def clean_df_for_ui(df: pd.DataFrame) -> list:
+    """Bulletproof Pandas cleaner for Streamlit tables."""
+    if df.empty:
+        return [{"Message": "No matching records found."}]
+    
+    df = df.dropna(how="all").copy()
+    
+    for col in df.columns:
+        df[col] = df[col].astype(str).replace(["nan", "NaT", "None", "<NA>"], "").str.strip()
+        
+    return df.to_dict(orient="records")
 
-llm = get_llm()
+def get_specific_sheet(file_key: str, sheet_name: str) -> pd.DataFrame:
+    """Explicitly loads an exact sheet to prevent fuzzy-matching errors."""
+    try:
+        path = resolve_file(EXCEL_FILES[file_key])
+        return pd.read_excel(path, sheet_name=sheet_name)
+    except Exception:
+        return pd.DataFrame()
+
+def get_all_talent() -> pd.DataFrame:
+    """Combines all talent sheets so no employee is ever missed during a lookup."""
+    sheets = ["Talent Pool", "Blocked Resource", "Intern", "Future Pool", "Resign"]
+    dfs = []
+    for s in sheets:
+        df = get_specific_sheet("talent_pool", s)
+        if not df.empty:
+            dfs.append(df)
+    return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
+
+def detect_intent(llm, query: str) -> str:
+    prompt = f"""
+    Classify this PMO query into ONE category: STAFFING, PORTFOLIO, GOVERNANCE, TEMPLATE, or ACTION.
+    Return ONLY the word.
+    Query: "{query}"
+    """
+    try:
+        res = llm.complete(system_prompt="You are a router. Return one word.", user_content=prompt, temperature=0.0)
+        res = res.upper()
+        for agent in ["STAFFING", "PORTFOLIO", "GOVERNANCE", "TEMPLATE", "ACTION"]:
+            if agent in res:
+                return agent
+    except Exception:
+        pass
+    return "STAFFING"
+
 def handle_query(user_query: str) -> OrchestratorResult:
-
+    llm = get_llm()
     q = user_query.lower()
 
     # =====================================================
-    # EMPLOYEE PROFILE LOOKUP (NAME OR EMPLOYEE ID)
+    # 1. EXPLICIT SHEET ROUTING FOR EXACT QUERIES
     # =====================================================
-    if any(k in q for k in ["profile", "employee", "emp_id"]):
+    
+    # Staffing: Interns
+    if "intern" in q:
+        return OrchestratorResult(agent="STAFFING", payload=clean_df_for_ui(get_specific_sheet("talent_pool", "Intern")))
 
-        df = load_talent_pool()
+    # Staffing: Blocked Resources
+    if "blocked" in q:
+        return OrchestratorResult(agent="STAFFING", payload=clean_df_for_ui(get_specific_sheet("talent_pool", "Blocked Resource")))
 
-        # Normalize column just in case
-        df["Employee Name"] = (
-            df["Employee Name"]
-            .astype(str)
-            .str.replace(r"\s+", " ", regex=True)
-            .str.strip()
-        )
+    # Staffing: Bench / Talent Pool (Available)
+    if any(k in q for k in ["bench", "talent pool", "available"]):
+        return OrchestratorResult(agent="STAFFING", payload=clean_df_for_ui(get_specific_sheet("talent_pool", "Talent Pool")))
 
-        # ---------------------------------------------
-        # 1️⃣ SEARCH BY EMPLOYEE ID
-        # ---------------------------------------------
-        id_match = re.search(r"\b\d{4,}\b", user_query)
-
-        if id_match:
-
-            emp_id = id_match.group()
-
-            emp = df[
-                df["Employee Code"]
-                .astype(str)
-                .str.contains(emp_id, case=False, na=False)
-            ]
-
-            if not emp.empty:
-                return OrchestratorResult(
-                    agent="STAFFING",
-                    payload=emp.to_dict(orient="records")
-                )
-
-        # ---------------------------------------------
-        # 2️⃣ SEARCH BY EMPLOYEE NAME
-        # ---------------------------------------------
-        stop_words = [
-            "show", "share", "profile", "employee",
-            "details", "of", "the", "detailed"
-        ]
-
-        name_tokens = [
-            word for word in user_query.split()
-            if word.lower() not in stop_words
-        ]
-
-        search_name = " ".join(name_tokens).strip()
-
-        emp = df[
-            df["Employee Name"]
-            .str.lower()
-            .str.contains(search_name.lower(), na=False)
-        ]
-
-        if emp.empty:
-            return OrchestratorResult(
-                agent="STAFFING",
-                payload="Employee not found in talent pool."
-            )
-
-        return OrchestratorResult(
-            agent="STAFFING",
-            payload=emp.to_dict(orient="records")
-        )
-
-    # =====================================================
-    # TALENT POOL / BENCH / AVAILABLE RESOURCES
-    # =====================================================
-    if any(k in q for k in [
-        "talent pool",
-        "available resources",
-        "bench",
-        "available employees",
-    ]):
-
-        req = StaffingRequest()
-
-        suggestions = staffing_agent.suggest_candidates(req, top_n=20)
-
-        return OrchestratorResult(
-            agent="STAFFING",
-            payload=[s.__dict__ for s in suggestions]
-        )
-
-    # =====================================================
-    # PROJECT TEAM LOOKUP
-    # =====================================================
+    # Portfolio: Project Team Lookup
     if "who is working on" in q:
+        # Explicitly pull the actual resource allocation sheet
+        df = get_specific_sheet("resource_allocation", "Overall Project Res Allocation")
+        
+        target = q.split("who is working on")[-1].strip()
+        target = re.sub(r'^(the|project)\s+', '', target).strip() 
+        
+        team = pd.DataFrame()
+        if not df.empty:
+            mask = pd.Series(False, index=df.index)
+            if "Project Name" in df.columns:
+                mask |= df["Project Name"].astype(str).str.contains(target, case=False, regex=False, na=False)
+            if "Customer Name" in df.columns:
+                mask |= df["Customer Name"].astype(str).str.contains(target, case=False, regex=False, na=False)
+            team = df[mask]
+        
+        # Fallback: Search across ALL talent sheets for the project
+        if team.empty:
+            tp_df = get_all_talent()
+            if not tp_df.empty:
+                tp_mask = pd.Series(False, index=tp_df.index)
+                if "Source Project/Ac" in tp_df.columns:
+                    tp_mask |= tp_df["Source Project/Ac"].astype(str).str.contains(target, case=False, regex=False, na=False)
+                if "Customer Name (If resource is Blocked)" in tp_df.columns:
+                    tp_mask |= tp_df["Customer Name (If resource is Blocked)"].astype(str).str.contains(target, case=False, regex=False, na=False)
+                if "Project Name\n(If resource is Blocked)" in tp_df.columns:
+                    tp_mask |= tp_df["Project Name\n(If resource is Blocked)"].astype(str).str.contains(target, case=False, regex=False, na=False)
+                
+                team = tp_df[tp_mask]
+                if not team.empty:
+                    return OrchestratorResult(agent="STAFFING", payload=clean_df_for_ui(team))
 
-        df = load_resource_allocation_master()
-
-        project_name = user_query.split("on")[-1].strip()
-
-        team = df[
-            df["Project Name"]
-            .astype(str)
-            .str.contains(project_name, case=False, na=False)
-        ]
-
-        return OrchestratorResult(
-            agent="PORTFOLIO",
-            payload=team.to_dict(orient="records")
-        )
+        return OrchestratorResult(agent="PORTFOLIO", payload=clean_df_for_ui(team))
 
     # =====================================================
-    # PORTFOLIO / UTILIZATION / KPI / BILLING
+    # 2. LLM DYNAMIC ROUTING FOR EVERYTHING ELSE
     # =====================================================
-    if any(k in q for k in [
-        "utilization",
-        "bench strength",
-        "project count",
-        "kpi",
-        "csat",
-        "billing",
-        "invoice",
-        "timesheet",
-        "portfolio",
-    ]):
+    agent_intent = detect_intent(llm, user_query)
 
+    if agent_intent == "STAFFING":
+        # Search absolutely everyone across all sheets
+        df = get_all_talent()
+        
+        if not df.empty:
+            # A. Lookup by Employee ID
+            id_match = re.search(r"\b\d{4,}\b", user_query)
+            if id_match and "Employee Code" in df.columns:
+                emp = df[df["Employee Code"].astype(str).str.contains(id_match.group(), case=False, regex=False, na=False)]
+                if not emp.empty:
+                    return OrchestratorResult(agent="STAFFING", payload=clean_df_for_ui(emp))
+
+            # B. Lookup by Employee Name (Bulletproof Direct Match)
+            if "Employee Name" in df.columns:
+                query_padded = f" {q} "
+                
+                for _, row in df.iterrows():
+                    full_name = str(row["Employee Name"]).strip().lower()
+                    if not full_name or full_name == "nan": 
+                        continue
+                    
+                    first_name = full_name.split()[0]
+                    
+                    if full_name in q or f" {first_name} " in query_padded:
+                        emp = df[df["Employee Name"].astype(str).str.lower() == full_name]
+                        return OrchestratorResult(agent="STAFFING", payload=clean_df_for_ui(emp))
+
+                # C. LLM Fallback Name Extraction
+                try:
+                    name_res = llm.complete(
+                        system_prompt="Extract ONLY the person's name. Return ONLY the name. No other words. No punctuation.",
+                        user_content=f"Query: {user_query}",
+                        temperature=0.0
+                    ).strip().replace('"', '').replace("'", "")
+                    
+                    if name_res and name_res.upper() != "NONE":
+                        emp = df[df["Employee Name"].astype(str).str.lower().str.contains(name_res.lower(), regex=False, na=False)]
+                        if not emp.empty:
+                            return OrchestratorResult(agent="STAFFING", payload=clean_df_for_ui(emp))
+                except Exception:
+                    pass
+
+        # Absolute Fallback
+        req = StaffingRequest()
+        suggestions = staffing_agent.suggest_candidates(req, top_n=20)
+        return OrchestratorResult(agent="STAFFING", payload=[s.__dict__ for s in suggestions])
+
+    elif agent_intent == "PORTFOLIO":
         result = portfolio_agent.answer_portfolio_question(user_query)
+        return OrchestratorResult(agent="PORTFOLIO", payload=result)
 
-        return OrchestratorResult(
-            agent="PORTFOLIO",
-            payload=result
-        )
-
-    # =====================================================
-    # GOVERNANCE / RISKS / ESCALATIONS
-    # =====================================================
-    if any(k in q for k in [
-        "governance",
-        "risk",
-        "escalation",
-        "health",
-        "rca",
-        "red",
-        "amber",
-    ]):
-
+    elif agent_intent == "GOVERNANCE":
         items = governance_agent.get_checklist_for_phase("Execution")
+        return OrchestratorResult(agent="GOVERNANCE", payload=[item.__dict__ for item in items])
 
-        return OrchestratorResult(
-            agent="GOVERNANCE",
-            payload=[item.__dict__ for item in items]
-        )
-
-    # =====================================================
-    # DOCUMENT / TEMPLATE GENERATION
-    # =====================================================
-    if any(k in q for k in [
-        "brd",
-        "tdd",
-        "mom",
-        "document",
-        "draft",
-        "template",
-        "cv",
-    ]):
-
-        req = TemplateRequest(
-            template_type="BRD",
-            context={"summary": user_query}
-        )
-
+    elif agent_intent == "TEMPLATE":
+        req = TemplateRequest(template_type="BRD", context={"summary": user_query})
         doc = template_agent.generate_document(req)
+        return OrchestratorResult(agent="TEMPLATE", payload=doc)
 
-        return OrchestratorResult(
-            agent="TEMPLATE",
-            payload=doc
-        )
+    elif agent_intent == "ACTION":
+        try:
+            from . import action_agent
+            parsed_request = action_agent.parse_action_request(user_query)
+            return OrchestratorResult(agent="ACTION", payload=parsed_request)
+        except ImportError:
+            return OrchestratorResult(agent="STAFFING", payload="Action Agent not yet implemented.")
 
-    # =====================================================
-    # DEFAULT → SHOW TALENT POOL
-    # =====================================================
+    # Catch-all
     req = StaffingRequest()
-
     suggestions = staffing_agent.suggest_candidates(req, top_n=20)
-
-    return OrchestratorResult(
-        agent="STAFFING",
-        payload=[s.__dict__ for s in suggestions]
-    )
-
-def detect_intent(llm, query: str):
-
-    prompt = f"""
-        You are an AI router for a PMO assistant.
-
-        Classify the user's question into one of the following agents:
-
-        STAFFING
-        PORTFOLIO
-        GOVERNANCE
-        TEMPLATE
-
-        Return ONLY the agent name.
-
-        Examples:
-
-        Show employee profile of Aakash → STAFFING
-        Show available resources → STAFFING
-        Track onboarding status → PORTFOLIO
-        Show project health risks → GOVERNANCE
-        Generate BRD document → TEMPLATE
-
-        User question:
-        {query}
-        """
-
-    return llm.complete(
-        system_prompt="You are an AI router.",
-        user_content=prompt,
-        max_tokens=20,
-    ).strip().upper()
+    return OrchestratorResult(agent="STAFFING", payload=[s.__dict__ for s in suggestions])

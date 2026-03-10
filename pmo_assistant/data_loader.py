@@ -17,6 +17,12 @@ def _ensure_exists(path: Path) -> Path:
         raise FileNotFoundError(f"Expected file not found: {path}")
     return path
 
+def _clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Standardize dataframe columns and remove spaces.
+    """
+    df.columns = df.columns.str.strip()
+    return df
 
 def _read_excel_sheet_fuzzy(path: Path, required_keywords: List[str]) -> pd.DataFrame:
     """
@@ -37,44 +43,69 @@ def _read_excel_sheet_fuzzy(path: Path, required_keywords: List[str]) -> pd.Data
     )
 
 
+
+
 # @st.cache_data
 # def load_talent_pool() -> pd.DataFrame:
-#     """
-#     Load talent pool data from the Excel workbook.
-#     """
 #     excel_path = resolve_file(EXCEL_FILES["talent_pool"])
-#     # Look for a sheet like "Talent Pool"
 #     df = _read_excel_sheet_fuzzy(excel_path, ["talent", "pool"])
+#     # Performance hack: Convert numeric columns immediately
+#     if "Bench %" in df.columns:
+#         df["Bench %"] = pd.to_numeric(df["Bench %"], errors='coerce').fillna(0)
 #     return df
 
 @st.cache_data
 def load_talent_pool() -> pd.DataFrame:
     excel_path = resolve_file(EXCEL_FILES["talent_pool"])
     df = _read_excel_sheet_fuzzy(excel_path, ["talent", "pool"])
-    # Performance hack: Convert numeric columns immediately
+
+    df = _clean_dataframe(df)
+
     if "Bench %" in df.columns:
-        df["Bench %"] = pd.to_numeric(df["Bench %"], errors='coerce').fillna(0)
-    return df
-@st.cache_data
-def load_resource_allocation_master() -> pd.DataFrame:
-    """
-    Load overall project resource allocation data.
-    """
-    excel_path = resolve_file(EXCEL_FILES["resource_allocation"])
-    df = _read_excel_sheet_fuzzy(excel_path, ["overall", "project", "res"])
+        df["Bench %"] = pd.to_numeric(df["Bench %"], errors="coerce").fillna(0)
+
     return df
 
+# @st.cache_data
+# def load_resource_allocation_master() -> pd.DataFrame:
+#     """
+#     Load overall project resource allocation data.
+#     """
+#     excel_path = resolve_file(EXCEL_FILES["resource_allocation"])
+#     df = _read_excel_sheet_fuzzy(excel_path, ["overall", "project", "res"])
+#     return df
+
+@st.cache_data
+def load_resource_allocation_master() -> pd.DataFrame:
+    excel_path = resolve_file(EXCEL_FILES["resource_allocation"])
+    df = _read_excel_sheet_fuzzy(excel_path, ["overall", "project", "res"])
+
+    df = _clean_dataframe(df)
+
+    return df
+# @st.cache_data
+# def load_resource_utilization_master() -> pd.DataFrame:
+#     """
+#     Load utilization master data.
+#     """
+#     excel_path = resolve_file(EXCEL_FILES["resource_utilization"])
+#     df = _read_excel_sheet_fuzzy(excel_path, ["master"])
+#     return df
 
 @st.cache_data
 def load_resource_utilization_master() -> pd.DataFrame:
-    """
-    Load utilization master data.
-    """
     excel_path = resolve_file(EXCEL_FILES["resource_utilization"])
     df = _read_excel_sheet_fuzzy(excel_path, ["master"])
+
+    df = _clean_dataframe(df)
+
+    if "Billable Hours" in df.columns:
+        df["Billable Hours"] = pd.to_numeric(df["Billable Hours"], errors="coerce").fillna(0)
+
+    if "Total Hours" in df.columns:
+        df["Total Hours"] = pd.to_numeric(df["Total Hours"], errors="coerce").fillna(0)
+
     return df
-
-
 @st.cache_data
 def load_third_party_resources() -> pd.DataFrame:
     """
@@ -89,16 +120,32 @@ def load_third_party_resources() -> pd.DataFrame:
     return df
 
 
+# @st.cache_data
+# def load_csat_data() -> pd.DataFrame:
+#     excel_path = resolve_file(EXCEL_FILES["csat"])
+#     # Assume main CSAT sheet has "CSAT" in sheet name; fall back to first sheet
+#     try:
+#         return _read_excel_sheet_fuzzy(excel_path, ["csat"])
+#     except Exception:
+#         xls = pd.ExcelFile(excel_path)
+#         return pd.read_excel(xls, sheet_name=xls.sheet_names[0])
+
 @st.cache_data
 def load_csat_data() -> pd.DataFrame:
     excel_path = resolve_file(EXCEL_FILES["csat"])
-    # Assume main CSAT sheet has "CSAT" in sheet name; fall back to first sheet
+
     try:
-        return _read_excel_sheet_fuzzy(excel_path, ["csat"])
+        df = _read_excel_sheet_fuzzy(excel_path, ["csat"])
     except Exception:
         xls = pd.ExcelFile(excel_path)
-        return pd.read_excel(xls, sheet_name=xls.sheet_names[0])
+        df = pd.read_excel(xls, sheet_name=xls.sheet_names[0])
 
+    df = _clean_dataframe(df)
+
+    if "CSAT Score" in df.columns:
+        df["CSAT Score"] = pd.to_numeric(df["CSAT Score"], errors="coerce").fillna(0)
+
+    return df
 
 @st.cache_data
 def load_dashboard_dictionary() -> Dict[str, pd.DataFrame]:

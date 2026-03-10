@@ -75,10 +75,8 @@ PPTX_FILES = {
 # LLM CONFIGURATION
 # =========================================================
 
-# GROQ_API_KEY: str | None = os.getenv("GROQ_API_KEY")
-
-# # Default model; can be overridden via env var
-# GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_API_KEY: str | None = os.getenv("GROQ_API_KEY")
+GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 
 # =========================================================
 # LLM CONFIGURATION (Anthropic Claude)
@@ -88,7 +86,6 @@ PPTX_FILES = {
 # LLM CONFIGURATION (OpenAI)
 # =========================================================
 
-HUGGINGFACEHUB_API_KEY: str | None = os.getenv("HUGGINGFACEHUB_API_KEY")
 
 # OPENAI_MODEL: str = os.getenv(
 #     "OPENAI_MODEL",
