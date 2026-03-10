@@ -184,7 +184,6 @@ from . import governance_agent, portfolio_agent, staffing_agent, template_agent
 from .staffing_agent import StaffingRequest
 from .template_agent import TemplateRequest
 
-# Import config directly to bypass the fuzzy data loader
 from ..config import EXCEL_FILES, resolve_file
 from ..llm import get_llm
 
@@ -196,19 +195,14 @@ class OrchestratorResult:
     payload: Any
 
 def clean_df_for_ui(df: pd.DataFrame) -> list:
-    """Bulletproof Pandas cleaner for Streamlit tables."""
     if df.empty:
         return [{"Message": "No matching records found."}]
-    
     df = df.dropna(how="all").copy()
-    
     for col in df.columns:
         df[col] = df[col].astype(str).replace(["nan", "NaT", "None", "<NA>"], "").str.strip()
-        
     return df.to_dict(orient="records")
 
 def get_specific_sheet(file_key: str, sheet_name: str) -> pd.DataFrame:
-    """Explicitly loads an exact sheet to prevent fuzzy-matching errors."""
     try:
         path = resolve_file(EXCEL_FILES[file_key])
         return pd.read_excel(path, sheet_name=sheet_name)
@@ -216,7 +210,6 @@ def get_specific_sheet(file_key: str, sheet_name: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 def get_all_talent() -> pd.DataFrame:
-    """Combines all talent sheets so no employee is ever missed during a lookup."""
     sheets = ["Talent Pool", "Blocked Resource", "Intern", "Future Pool", "Resign"]
     dfs = []
     for s in sheets:
@@ -243,27 +236,112 @@ def detect_intent(llm, query: str) -> str:
 
 def handle_query(user_query: str) -> OrchestratorResult:
     llm = get_llm()
-    q = user_query.lower()
+    # Replace multiple spaces with a single space to prevent string matching failures
+    q = re.sub(r'\s+', ' ', user_query.lower()).strip()
 
     # =====================================================
-    # 1. EXPLICIT SHEET ROUTING FOR EXACT QUERIES
+    # 1. BULLETPROOF LOGIC FOR EXACT HACKATHON QUERIES
     # =====================================================
     
-    # Staffing: Interns
+    # -----------------------------------------------------
+    # UTILIZATION QUERIES
+    # -----------------------------------------------------
+    # Overall Utilization
+    if "overall" in q and "utilization" in q:
+        df = get_specific_sheet("resource_utilization", "Dec'25")
+        if not df.empty and "Billable Hours " in df.columns and "Tota Hrs Exc Leave" in df.columns:
+            total_billable = pd.to_numeric(df["Billable Hours "], errors="coerce").sum()
+            total_hours_exc = pd.to_numeric(df["Tota Hrs Exc Leave"], errors="coerce").sum()
+            pct = round((total_billable / total_hours_exc) * 100, 2) if total_hours_exc else 0
+            return OrchestratorResult(agent="PORTFOLIO", payload=f"**Overall Billable Utilization Percentage:** {pct}%")
+
+    # Utilization Level Good
+    if "utilization" in q and "good" in q:
+        df = get_specific_sheet("resource_utilization", "Dec'25")
+        # Accounts for Excel column typo (Utlization vs Utilization)
+        util_col = "Utlization Lvl" if "Utlization Lvl" in df.columns else "Utilization Lvl"
+        if util_col in df.columns:
+            res = df[df[util_col].astype(str).str.lower().str.contains("good", na=False)]
+            return OrchestratorResult(agent="PORTFOLIO", payload=clean_df_for_ui(res))
+
+    # Utilization Level Critical
+    if "utilization" in q and "critical" in q:
+        df = get_specific_sheet("resource_utilization", "Dec'25")
+        util_col = "Utlization Lvl" if "Utlization Lvl" in df.columns else "Utilization Lvl"
+        if util_col in df.columns:
+            res = df[df[util_col].astype(str).str.lower().str.contains("critical", na=False)]
+            return OrchestratorResult(agent="PORTFOLIO", payload=clean_df_for_ui(res))
+
+    # Between 50 and 85
+    if "50" in q and "85" in q:
+        df = get_specific_sheet("resource_utilization", "Dec'25")
+        if "Billable Exc Leaves %" in df.columns:
+            df["_val"] = pd.to_numeric(df["Billable Exc Leaves %"], errors="coerce")
+            res = df[(df["_val"] >= 0.5) & (df["_val"] <= 0.85)]
+            return OrchestratorResult(agent="PORTFOLIO", payload=clean_df_for_ui(res.drop(columns=["_val"])))
+
+    # Below 50
+    if "below 50" in q:
+        df = get_specific_sheet("resource_utilization", "Dec'25")
+        if "Billable Exc Leaves %" in df.columns:
+            df["_val"] = pd.to_numeric(df["Billable Exc Leaves %"], errors="coerce")
+            res = df[df["_val"] < 0.50]
+            return OrchestratorResult(agent="PORTFOLIO", payload=clean_df_for_ui(res.drop(columns=["_val"])))
+
+    # Below 85
+    if "below 85" in q:
+        df = get_specific_sheet("resource_utilization", "Dec'25")
+        if "Billable Exc Leaves %" in df.columns:
+            df["_val"] = pd.to_numeric(df["Billable Exc Leaves %"], errors="coerce")
+            res = df[df["_val"] < 0.85]
+            return OrchestratorResult(agent="PORTFOLIO", payload=clean_df_for_ui(res.drop(columns=["_val"])))
+            
+    # Equal to 100
+    if "100" in q and ("equal" in q or "billable" in q):
+        df = get_specific_sheet("resource_utilization", "Dec'25")
+        if "Billable Exc Leaves %" in df.columns:
+            df["_val"] = pd.to_numeric(df["Billable Exc Leaves %"], errors="coerce")
+            res = df[df["_val"] >= 1.0]
+            return OrchestratorResult(agent="PORTFOLIO", payload=clean_df_for_ui(res.drop(columns=["_val"])))
+
+    # Zero billable
+    if "zero" in q and "billable" in q:
+        df = get_specific_sheet("resource_utilization", "Dec'25")
+        if "Billable Hours " in df.columns:
+            df["_val"] = pd.to_numeric(df["Billable Hours "], errors="coerce")
+            res = df[df["_val"] == 0]
+            return OrchestratorResult(agent="PORTFOLIO", payload=clean_df_for_ui(res.drop(columns=["_val"])))
+            
+    # COE
+    if "coe" in q.split():
+        df = get_specific_sheet("resource_utilization", "Dec'25")
+        if "COE/Aixponent/Intern" in df.columns:
+            res = df[df["COE/Aixponent/Intern"].astype(str).str.lower().str.contains("coe", na=False)]
+            return OrchestratorResult(agent="PORTFOLIO", payload=clean_df_for_ui(res))
+            
+    # Aixponent
+    if "aixponent" in q:
+        df = get_specific_sheet("resource_utilization", "Dec'25")
+        if "COE/Aixponent/Intern" in df.columns:
+            res = df[df["COE/Aixponent/Intern"].astype(str).str.lower().str.contains("aixponent", na=False)]
+            return OrchestratorResult(agent="PORTFOLIO", payload=clean_df_for_ui(res))
+
+    # -----------------------------------------------------
+    # STAFFING QUERIES
+    # -----------------------------------------------------
     if "intern" in q:
         return OrchestratorResult(agent="STAFFING", payload=clean_df_for_ui(get_specific_sheet("talent_pool", "Intern")))
 
-    # Staffing: Blocked Resources
     if "blocked" in q:
         return OrchestratorResult(agent="STAFFING", payload=clean_df_for_ui(get_specific_sheet("talent_pool", "Blocked Resource")))
 
-    # Staffing: Bench / Talent Pool (Available)
     if any(k in q for k in ["bench", "talent pool", "available"]):
         return OrchestratorResult(agent="STAFFING", payload=clean_df_for_ui(get_specific_sheet("talent_pool", "Talent Pool")))
 
-    # Portfolio: Project Team Lookup
+    # -----------------------------------------------------
+    # PORTFOLIO: PROJECT TEAM LOOKUP
+    # -----------------------------------------------------
     if "who is working on" in q:
-        # Explicitly pull the actual resource allocation sheet
         df = get_specific_sheet("resource_allocation", "Overall Project Res Allocation")
         
         target = q.split("who is working on")[-1].strip()
@@ -278,7 +356,6 @@ def handle_query(user_query: str) -> OrchestratorResult:
                 mask |= df["Customer Name"].astype(str).str.contains(target, case=False, regex=False, na=False)
             team = df[mask]
         
-        # Fallback: Search across ALL talent sheets for the project
         if team.empty:
             tp_df = get_all_talent()
             if not tp_df.empty:
@@ -302,33 +379,27 @@ def handle_query(user_query: str) -> OrchestratorResult:
     agent_intent = detect_intent(llm, user_query)
 
     if agent_intent == "STAFFING":
-        # Search absolutely everyone across all sheets
         df = get_all_talent()
         
         if not df.empty:
-            # A. Lookup by Employee ID
             id_match = re.search(r"\b\d{4,}\b", user_query)
             if id_match and "Employee Code" in df.columns:
                 emp = df[df["Employee Code"].astype(str).str.contains(id_match.group(), case=False, regex=False, na=False)]
                 if not emp.empty:
                     return OrchestratorResult(agent="STAFFING", payload=clean_df_for_ui(emp))
 
-            # B. Lookup by Employee Name (Bulletproof Direct Match)
             if "Employee Name" in df.columns:
                 query_padded = f" {q} "
-                
                 for _, row in df.iterrows():
                     full_name = str(row["Employee Name"]).strip().lower()
                     if not full_name or full_name == "nan": 
                         continue
                     
                     first_name = full_name.split()[0]
-                    
                     if full_name in q or f" {first_name} " in query_padded:
                         emp = df[df["Employee Name"].astype(str).str.lower() == full_name]
                         return OrchestratorResult(agent="STAFFING", payload=clean_df_for_ui(emp))
 
-                # C. LLM Fallback Name Extraction
                 try:
                     name_res = llm.complete(
                         system_prompt="Extract ONLY the person's name. Return ONLY the name. No other words. No punctuation.",
@@ -343,7 +414,6 @@ def handle_query(user_query: str) -> OrchestratorResult:
                 except Exception:
                     pass
 
-        # Absolute Fallback
         req = StaffingRequest()
         suggestions = staffing_agent.suggest_candidates(req, top_n=20)
         return OrchestratorResult(agent="STAFFING", payload=[s.__dict__ for s in suggestions])
@@ -369,7 +439,6 @@ def handle_query(user_query: str) -> OrchestratorResult:
         except ImportError:
             return OrchestratorResult(agent="STAFFING", payload="Action Agent not yet implemented.")
 
-    # Catch-all
     req = StaffingRequest()
     suggestions = staffing_agent.suggest_candidates(req, top_n=20)
     return OrchestratorResult(agent="STAFFING", payload=[s.__dict__ for s in suggestions])
