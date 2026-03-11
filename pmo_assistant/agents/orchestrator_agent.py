@@ -50,9 +50,9 @@
 #     Return ONLY the word.
 #     - DOC_QA: User asks to summarize, analyze, read, or review an uploaded document.
 #     - TEMPLATE: User asks to create, draft, format, or generate a PMO document/CV.
-#     - ACTION: User asks to allocate, assign, or release a resource.
+#     - ACTION: User asks to allocate, assign, or execute a change for a resource.
 #     - PORTFOLIO: Questions about project status, utilization %, or billing.
-#     - STAFFING: Questions about bench, talent pool, interns, or employee search.
+#     - STAFFING: Questions about bench, talent pool, interns, onboarding/offboarding lists, or employee search.
 #     - GOVERNANCE: Questions about checklists or RCA.
     
 #     Query: "{short_query}"
@@ -213,9 +213,7 @@
 #     # STAFFING: EXPERIENCE SMART SCANNER
 #     # -----------------------------------------------------
 #     if any(kw in q for kw in ["experience", "exp", "years"]):
-#         # Extract floating point numbers or integers from the query
 #         nums = re.findall(r'\b\d+(?:\.\d+)?\b', q)
-#         # Filter out random large numbers (like employee IDs or years like 2025)
 #         valid_nums = [float(n) for n in nums if float(n) < 50]
         
 #         if valid_nums:
@@ -223,37 +221,44 @@
 #             if not df.empty and "Overall Exp" in df.columns:
 #                 df["_val"] = pd.to_numeric(df["Overall Exp"], errors="coerce")
                 
-#                 # Check for "between X and Y"
 #                 if "between" in q and len(valid_nums) >= 2:
 #                     val1, val2 = valid_nums[0], valid_nums[1]
 #                     res = df[(df["_val"] >= min(val1, val2)) & (df["_val"] <= max(val1, val2))]
-#                 # Check for "greater than", "more than", etc.
 #                 elif any(kw in q for kw in ["more than", "greater than", "above", "over", "minimum", "at least", ">"]):
 #                     res = df[df["_val"] >= valid_nums[0]]
-#                 # Check for "less than", "below", etc.
 #                 elif any(kw in q for kw in ["less than", "below", "under", "maximum", "<"]):
 #                     res = df[df["_val"] <= valid_nums[0]]
-#                 # If they just ask for "5 years experience", show them 5.0 to 5.9 years
 #                 else:
 #                     res = df[(df["_val"] >= valid_nums[0]) & (df["_val"] < valid_nums[0] + 1)]
                     
 #                 if not res.empty:
-#                     # Drop our temporary calculation column before sending it to the UI
 #                     return OrchestratorResult(agent="STAFFING", payload=clean_df_for_ui(res.drop(columns=["_val"])))
 #                 else:
 #                     return OrchestratorResult(agent="STAFFING", payload=f"No resources found matching the specified experience criteria.")
 
 #     # -----------------------------------------------------
-#     # STAFFING: GENERAL BENCH QUERIES
+#     # STAFFING: GENERAL BENCH & STATUS QUERIES (NEW)
 #     # -----------------------------------------------------
+#     # 1. Onboarding / Joining Status (Reads from "Future Pool")
+#     if any(kw in q for kw in ["onboard", "joining", "future pool", "to be hired", "new hire"]):
+#         return OrchestratorResult(agent="STAFFING", payload=clean_df_for_ui(get_specific_sheet("talent_pool", "Future Pool")))
+
+#     # 2. Offboarding / Resigned Status (Reads from "Resign")
+#     if any(kw in q for kw in ["offboard", "resign", "notice period", "leaving", "left"]):
+#         return OrchestratorResult(agent="STAFFING", payload=clean_df_for_ui(get_specific_sheet("talent_pool", "Resign")))
+
+#     # 3. Interns
 #     if "intern" in q:
 #         return OrchestratorResult(agent="STAFFING", payload=clean_df_for_ui(get_specific_sheet("talent_pool", "Intern")))
 
+#     # 4. Blocked
 #     if "blocked" in q:
 #         return OrchestratorResult(agent="STAFFING", payload=clean_df_for_ui(get_specific_sheet("talent_pool", "Blocked Resource")))
 
+#     # 5. Bench / Available
 #     if any(k in q for k in ["bench", "talent pool", "available"]):
 #         return OrchestratorResult(agent="STAFFING", payload=clean_df_for_ui(get_specific_sheet("talent_pool", "Talent Pool")))
+
 
 #     # -----------------------------------------------------
 #     # PORTFOLIO: PROJECT TEAM LOOKUP (SMART MATCHER)
@@ -307,9 +312,6 @@
 #     # =====================================================
 #     agent_intent = detect_intent(llm, user_query)
 
-#     # -----------------------------------------------------
-#     # DYNAMIC DOC QA (Fallback)
-#     # -----------------------------------------------------
 #     if agent_intent == "DOC_QA":
 #         if "[ATTACHED DOCUMENT TEXT]:" in user_query:
 #             parts = user_query.split("[ATTACHED DOCUMENT TEXT]:")
@@ -390,7 +392,6 @@
 #     return OrchestratorResult(agent="STAFFING", payload=[s.__dict__ for s in suggestions])
 
 
-
 from __future__ import annotations
 
 import re
@@ -442,7 +443,7 @@ def detect_intent(llm, query: str) -> str:
     Classify this PMO query into ONE category: STAFFING, PORTFOLIO, GOVERNANCE, TEMPLATE, ACTION, or DOC_QA.
     Return ONLY the word.
     - DOC_QA: User asks to summarize, analyze, read, or review an uploaded document.
-    - TEMPLATE: User asks to create, draft, format, or generate a PMO document/CV.
+    - TEMPLATE: User asks to create, draft, format, or generate a PMO document/CV/Resume.
     - ACTION: User asks to allocate, assign, or execute a change for a resource.
     - PORTFOLIO: Questions about project status, utilization %, or billing.
     - STAFFING: Questions about bench, talent pool, interns, onboarding/offboarding lists, or employee search.
@@ -630,25 +631,20 @@ def handle_query(user_query: str) -> OrchestratorResult:
                     return OrchestratorResult(agent="STAFFING", payload=f"No resources found matching the specified experience criteria.")
 
     # -----------------------------------------------------
-    # STAFFING: GENERAL BENCH & STATUS QUERIES (NEW)
+    # STAFFING: GENERAL BENCH & STATUS QUERIES
     # -----------------------------------------------------
-    # 1. Onboarding / Joining Status (Reads from "Future Pool")
     if any(kw in q for kw in ["onboard", "joining", "future pool", "to be hired", "new hire"]):
         return OrchestratorResult(agent="STAFFING", payload=clean_df_for_ui(get_specific_sheet("talent_pool", "Future Pool")))
 
-    # 2. Offboarding / Resigned Status (Reads from "Resign")
     if any(kw in q for kw in ["offboard", "resign", "notice period", "leaving", "left"]):
         return OrchestratorResult(agent="STAFFING", payload=clean_df_for_ui(get_specific_sheet("talent_pool", "Resign")))
 
-    # 3. Interns
     if "intern" in q:
         return OrchestratorResult(agent="STAFFING", payload=clean_df_for_ui(get_specific_sheet("talent_pool", "Intern")))
 
-    # 4. Blocked
     if "blocked" in q:
         return OrchestratorResult(agent="STAFFING", payload=clean_df_for_ui(get_specific_sheet("talent_pool", "Blocked Resource")))
 
-    # 5. Bench / Available
     if any(k in q for k in ["bench", "talent pool", "available"]):
         return OrchestratorResult(agent="STAFFING", payload=clean_df_for_ui(get_specific_sheet("talent_pool", "Talent Pool")))
 
@@ -725,7 +721,41 @@ def handle_query(user_query: str) -> OrchestratorResult:
         else:
             return OrchestratorResult(agent="DOC_QA", payload="Please upload a document using the sidebar first so I can review or summarize it for you.")
 
-    if agent_intent == "STAFFING":
+    # -----------------------------------------------------
+    # NEW: SMART TEMPLATE GENERATOR
+    # -----------------------------------------------------
+    elif agent_intent == "TEMPLATE":
+        parts = user_query.split("[ATTACHED DOCUMENT TEXT]:")
+        actual_query = parts[0].strip()
+        doc_text = parts[1].strip() if len(parts) > 1 else ""
+        
+        q_lower = actual_query.lower()
+        
+        # Determine the target template based on keywords
+        target_template = "BRD" # Default
+        if any(word in q_lower for word in ["cv", "resume", "profile", "exponent format", "exponent standard"]):
+            target_template = "CV"
+        elif any(word in q_lower for word in ["mom", "minutes", "meeting"]):
+            target_template = "MoM"
+        elif any(word in q_lower for word in ["weekly", "status"]):
+            target_template = "WeeklyStatus"
+            
+        # Structure the context for the agent
+        if doc_text:
+            context_data = {"User Instructions": actual_query, "Uploaded Document Data": doc_text}
+        else:
+            context_data = {"User Request": actual_query}
+            
+        req = TemplateRequest(template_type=target_template, context=context_data)
+        
+        try:
+            doc = template_agent.generate_document(req)
+            return OrchestratorResult(agent="TEMPLATE", payload=doc)
+        except Exception as e:
+            return OrchestratorResult(agent="TEMPLATE", payload=f"Failed to generate template: {str(e)}")
+
+
+    elif agent_intent == "STAFFING":
         df = get_all_talent()
         
         if not df.empty:
@@ -766,11 +796,6 @@ def handle_query(user_query: str) -> OrchestratorResult:
     elif agent_intent == "GOVERNANCE":
         items = governance_agent.get_checklist_for_phase("Execution")
         return OrchestratorResult(agent="GOVERNANCE", payload=[item.__dict__ for item in items])
-
-    elif agent_intent == "TEMPLATE":
-        req = TemplateRequest(template_type="BRD", context={"summary": user_query})
-        doc = template_agent.generate_document(req)
-        return OrchestratorResult(agent="TEMPLATE", payload=doc)
 
     elif agent_intent == "ACTION":
         try:
