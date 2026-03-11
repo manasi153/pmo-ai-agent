@@ -3,8 +3,8 @@
 *.env
 
 # VENV
-.ennewv/
-ennewv/
+.venv/
+venv/
 
 # CACHE
 __pycache__/
