@@ -132,6 +132,29 @@ def extract_text_from_upload(uploaded_file) -> str:
 
 def main() -> None:
     # ==========================================
+    # HIDE STREAMLIT BRANDING & GITHUB ICONS
+    # ==========================================
+    hide_streamlit_style = """
+        <style>
+        /* Hide the default Streamlit footer */
+        footer {visibility: hidden;}
+        
+        /* Hide the top right hamburger menu */
+        #MainMenu {visibility: hidden;}
+        
+        /* Hide the Streamlit Cloud Deploy button */
+        .stDeployButton {display: none;}
+        
+        /* Hide the bottom right GitHub and Streamlit Viewer Badges */
+        .viewerBadge_container__1QSob {display: none !important;}
+        [data-testid="stToolbar"] {display: none !important;}
+        
+        /* Aggressive catch-all for bottom right floating elements */
+        div[class^="viewerBadge"] {display: none !important;}
+        </style>
+    """
+    st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+    # ==========================================
     # 0. INITIALIZE SESSION STATE VARIABLES
     # ==========================================
     if "messages" not in st.session_state:
