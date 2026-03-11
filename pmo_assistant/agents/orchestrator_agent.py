@@ -197,20 +197,51 @@
 #     # -----------------------------------------------------
 #     # STAFFING: EMPLOYEE ID SMART SCANNER
 #     # -----------------------------------------------------
-#     # Instantly grabs any 4 to 6 digit number in the query (like 10006)
 #     emp_id_match = re.search(r"\b\d{4,6}\b", q)
-#     if emp_id_match and not re.search(r"\b(202[0-9])\b", emp_id_match.group()): # Ignores years like 2025
+#     if emp_id_match and not re.search(r"\b(202[0-9])\b", emp_id_match.group()):
 #         target_id = emp_id_match.group()
 #         df = get_all_talent()
 #         if not df.empty and "Employee Code" in df.columns:
-#             # First try exact match
 #             emp = df[df["Employee Code"].astype(str) == target_id]
 #             if not emp.empty:
 #                 return OrchestratorResult(agent="STAFFING", payload=clean_df_for_ui(emp))
-#             # Fallback to loose match
 #             emp_contains = df[df["Employee Code"].astype(str).str.contains(target_id, na=False)]
 #             if not emp_contains.empty:
 #                 return OrchestratorResult(agent="STAFFING", payload=clean_df_for_ui(emp_contains))
+
+#     # -----------------------------------------------------
+#     # STAFFING: EXPERIENCE SMART SCANNER
+#     # -----------------------------------------------------
+#     if any(kw in q for kw in ["experience", "exp", "years"]):
+#         # Extract floating point numbers or integers from the query
+#         nums = re.findall(r'\b\d+(?:\.\d+)?\b', q)
+#         # Filter out random large numbers (like employee IDs or years like 2025)
+#         valid_nums = [float(n) for n in nums if float(n) < 50]
+        
+#         if valid_nums:
+#             df = get_all_talent()
+#             if not df.empty and "Overall Exp" in df.columns:
+#                 df["_val"] = pd.to_numeric(df["Overall Exp"], errors="coerce")
+                
+#                 # Check for "between X and Y"
+#                 if "between" in q and len(valid_nums) >= 2:
+#                     val1, val2 = valid_nums[0], valid_nums[1]
+#                     res = df[(df["_val"] >= min(val1, val2)) & (df["_val"] <= max(val1, val2))]
+#                 # Check for "greater than", "more than", etc.
+#                 elif any(kw in q for kw in ["more than", "greater than", "above", "over", "minimum", "at least", ">"]):
+#                     res = df[df["_val"] >= valid_nums[0]]
+#                 # Check for "less than", "below", etc.
+#                 elif any(kw in q for kw in ["less than", "below", "under", "maximum", "<"]):
+#                     res = df[df["_val"] <= valid_nums[0]]
+#                 # If they just ask for "5 years experience", show them 5.0 to 5.9 years
+#                 else:
+#                     res = df[(df["_val"] >= valid_nums[0]) & (df["_val"] < valid_nums[0] + 1)]
+                    
+#                 if not res.empty:
+#                     # Drop our temporary calculation column before sending it to the UI
+#                     return OrchestratorResult(agent="STAFFING", payload=clean_df_for_ui(res.drop(columns=["_val"])))
+#                 else:
+#                     return OrchestratorResult(agent="STAFFING", payload=f"No resources found matching the specified experience criteria.")
 
 #     # -----------------------------------------------------
 #     # STAFFING: GENERAL BENCH QUERIES
@@ -412,9 +443,9 @@ def detect_intent(llm, query: str) -> str:
     Return ONLY the word.
     - DOC_QA: User asks to summarize, analyze, read, or review an uploaded document.
     - TEMPLATE: User asks to create, draft, format, or generate a PMO document/CV.
-    - ACTION: User asks to allocate, assign, or release a resource.
+    - ACTION: User asks to allocate, assign, or execute a change for a resource.
     - PORTFOLIO: Questions about project status, utilization %, or billing.
-    - STAFFING: Questions about bench, talent pool, interns, or employee search.
+    - STAFFING: Questions about bench, talent pool, interns, onboarding/offboarding lists, or employee search.
     - GOVERNANCE: Questions about checklists or RCA.
     
     Query: "{short_query}"
@@ -575,9 +606,7 @@ def handle_query(user_query: str) -> OrchestratorResult:
     # STAFFING: EXPERIENCE SMART SCANNER
     # -----------------------------------------------------
     if any(kw in q for kw in ["experience", "exp", "years"]):
-        # Extract floating point numbers or integers from the query
         nums = re.findall(r'\b\d+(?:\.\d+)?\b', q)
-        # Filter out random large numbers (like employee IDs or years like 2025)
         valid_nums = [float(n) for n in nums if float(n) < 50]
         
         if valid_nums:
@@ -585,37 +614,44 @@ def handle_query(user_query: str) -> OrchestratorResult:
             if not df.empty and "Overall Exp" in df.columns:
                 df["_val"] = pd.to_numeric(df["Overall Exp"], errors="coerce")
                 
-                # Check for "between X and Y"
                 if "between" in q and len(valid_nums) >= 2:
                     val1, val2 = valid_nums[0], valid_nums[1]
                     res = df[(df["_val"] >= min(val1, val2)) & (df["_val"] <= max(val1, val2))]
-                # Check for "greater than", "more than", etc.
                 elif any(kw in q for kw in ["more than", "greater than", "above", "over", "minimum", "at least", ">"]):
                     res = df[df["_val"] >= valid_nums[0]]
-                # Check for "less than", "below", etc.
                 elif any(kw in q for kw in ["less than", "below", "under", "maximum", "<"]):
                     res = df[df["_val"] <= valid_nums[0]]
-                # If they just ask for "5 years experience", show them 5.0 to 5.9 years
                 else:
                     res = df[(df["_val"] >= valid_nums[0]) & (df["_val"] < valid_nums[0] + 1)]
                     
                 if not res.empty:
-                    # Drop our temporary calculation column before sending it to the UI
                     return OrchestratorResult(agent="STAFFING", payload=clean_df_for_ui(res.drop(columns=["_val"])))
                 else:
                     return OrchestratorResult(agent="STAFFING", payload=f"No resources found matching the specified experience criteria.")
 
     # -----------------------------------------------------
-    # STAFFING: GENERAL BENCH QUERIES
+    # STAFFING: GENERAL BENCH & STATUS QUERIES (NEW)
     # -----------------------------------------------------
+    # 1. Onboarding / Joining Status (Reads from "Future Pool")
+    if any(kw in q for kw in ["onboard", "joining", "future pool", "to be hired", "new hire"]):
+        return OrchestratorResult(agent="STAFFING", payload=clean_df_for_ui(get_specific_sheet("talent_pool", "Future Pool")))
+
+    # 2. Offboarding / Resigned Status (Reads from "Resign")
+    if any(kw in q for kw in ["offboard", "resign", "notice period", "leaving", "left"]):
+        return OrchestratorResult(agent="STAFFING", payload=clean_df_for_ui(get_specific_sheet("talent_pool", "Resign")))
+
+    # 3. Interns
     if "intern" in q:
         return OrchestratorResult(agent="STAFFING", payload=clean_df_for_ui(get_specific_sheet("talent_pool", "Intern")))
 
+    # 4. Blocked
     if "blocked" in q:
         return OrchestratorResult(agent="STAFFING", payload=clean_df_for_ui(get_specific_sheet("talent_pool", "Blocked Resource")))
 
+    # 5. Bench / Available
     if any(k in q for k in ["bench", "talent pool", "available"]):
         return OrchestratorResult(agent="STAFFING", payload=clean_df_for_ui(get_specific_sheet("talent_pool", "Talent Pool")))
+
 
     # -----------------------------------------------------
     # PORTFOLIO: PROJECT TEAM LOOKUP (SMART MATCHER)
@@ -669,9 +705,6 @@ def handle_query(user_query: str) -> OrchestratorResult:
     # =====================================================
     agent_intent = detect_intent(llm, user_query)
 
-    # -----------------------------------------------------
-    # DYNAMIC DOC QA (Fallback)
-    # -----------------------------------------------------
     if agent_intent == "DOC_QA":
         if "[ATTACHED DOCUMENT TEXT]:" in user_query:
             parts = user_query.split("[ATTACHED DOCUMENT TEXT]:")
